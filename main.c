@@ -22,17 +22,20 @@
 
 static bool try_apply_profiles(struct kanshi_state *state);
 
-static bool match_profile_output(struct kanshi_profile_output *output,
-		struct kanshi_head *head) {
+static void get_head_identifier(struct kanshi_head *head, char* buffer, size_t buffer_size) {
 	const char *make = head->make ? head->make : "Unknown";
 	const char *model = head->model ? head->model : "Unknown";
 	const char *serial_number =
 		head->serial_number ? head->serial_number : "Unknown";
 
-	char identifier[1024];
-	assert(sizeof(identifier) >= strlen(make) + strlen(model) + strlen(serial_number) + 3);
-	snprintf(identifier, sizeof(identifier), "%s %s %s", make, model, serial_number);
+	assert(buffer_size >= strlen(make) + strlen(model) + strlen(serial_number) + 3);
+	snprintf(buffer, buffer_size, "%s %s %s", make, model, serial_number);
+}
 
+static bool match_profile_output(struct kanshi_profile_output *output,
+		struct kanshi_head *head) {
+	char identifier[1024];
+	get_head_identifier(head, identifier, 1024);
 	return strcmp(output->name, "*") == 0 ||
 		strcmp(output->name, head->name) == 0 ||
 		strcmp(output->name, identifier) == 0;
@@ -486,6 +489,7 @@ static void output_manager_handle_head(void *data,
 	head->state = state;
 	head->wlr_head = wlr_head;
 	head->scale = 1.0;
+
 	wl_list_init(&head->modes);
 	wl_list_insert(&state->heads, &head->link);
 
@@ -509,6 +513,17 @@ static void output_manager_handle_done(void *data,
 		struct zwlr_output_manager_v1 *manager, uint32_t serial) {
 	struct kanshi_state *state = data;
 	state->serial = serial;
+
+	if (state->verbose) {
+		char identifier[1024];
+		struct kanshi_head *head;
+		fprintf(stdout, "\nmatching profiles against the following screens:\n");
+		wl_list_for_each(head, &state->heads, link) {
+			get_head_identifier(head, identifier, 1024);
+			fprintf(stdout, "- %s: \"%s\"\n", head->name, identifier);
+		}
+		fprintf(stdout, "\n");
+	}
 
 	try_apply_profiles(state);
 }
@@ -609,11 +624,13 @@ bool kanshi_reload_config(struct kanshi_state *state) {
 
 static const char usage[] = "Usage: %s [options...]\n"
 "  -h, --help           Show help message and quit\n"
-"  -c, --config <path>  Path to config file.\n";
+"  -c, --config <path>  Path to config file.\n"
+"  -v, --verbose        Show screen information\n";
 
 static const struct option long_options[] = {
 	{"help", no_argument, 0, 'h'},
 	{"config", required_argument, 0, 'c'},
+	{"verbose", no_argument, 0, 'v'},
 	{0},
 };
 
@@ -621,10 +638,14 @@ int main(int argc, char *argv[]) {
 	const char *config_arg = NULL;
 
 	int opt;
-	while ((opt = getopt_long(argc, argv, "hc:", long_options, NULL)) != -1) {
+	bool verbose = false;
+	while ((opt = getopt_long(argc, argv, "hc:v", long_options, NULL)) != -1) {
 		switch (opt) {
 		case 'c':
 			config_arg = optarg;
+			break;
+		case 'v':
+			verbose = true;
 			break;
 		case 'h':
 			fprintf(stderr, usage, argv[0]);
@@ -651,6 +672,7 @@ int main(int argc, char *argv[]) {
 		.display = display,
 		.config = config,
 		.config_arg = config_arg,
+		.verbose = verbose,
 	};
 	int ret = EXIT_SUCCESS;
 #if KANSHI_HAS_VARLINK

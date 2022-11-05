@@ -50,6 +50,7 @@ struct kanshi_state {
 
 	struct kanshi_config *config;
 	const char *config_arg;
+	bool verbose;
 
 	struct wl_list heads;
 	uint32_t serial;
